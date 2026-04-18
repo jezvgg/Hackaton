@@ -18,7 +18,7 @@ logger = logging.getLogger("search-service")
 
 settings = Settings.from_env()
 
-app = FastAPI(title="Search Service", version="0.1.0", lifespan=lifespan)
+app = FastAPI(title="Search Service", version="0.1.0")
 service = QDrantService(settings)
 
 
@@ -75,8 +75,8 @@ def main() -> None:
 
     uvicorn.run(
         "main:app",
-        host=HOST,
-        port=PORT,
+        host=settings.web_server.host,
+        port=settings.web_server.port,
         reload=False,
     )
 

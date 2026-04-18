@@ -1,4 +1,7 @@
+import asyncio
+
 from qdrant_client import AsyncQdrantClient, models
+import httpx
 
 from Settings import Settings
 from Embeddings import QwenEmbedding, BM25Embedding
@@ -8,18 +11,22 @@ from Models import SearchAPIResponse, SparseVector
 class QDrantService:
     settings: Settings
     dense_embedding: QwenEmbedding
-    sparce_embedding: BM25Embedding
+    sparse_embedding: BM25Embedding
+    http: httpx.AsyncClient
+    qdrant: AsyncQdrantClient
 
 
     def __init__(self, settings: Settings):
         self.settings = settings
-        self.dense_embedding = QwenEmbedding(settings.dense_model, settings.open_api)
-        self.sparce_embedding = BM25Embedding(settings.sparce_model_name)
+
         self.http = httpx.AsyncClient()
         self.qdrant = AsyncQdrantClient(
             url=self.settings.qdrant.url,
             api_key=self.settings.open_api.api_key,
         )
+
+        self.dense_embedding = QwenEmbedding(settings.dense_model, settings.open_api, self.http)
+        self.sparse_embedding = BM25Embedding(settings.sparce_model_name)
 
     async def get_rerank_scores(
         self,
@@ -31,7 +38,7 @@ class QDrantService:
 
         response = await self.http.post(
             self.settings.rerank.url,
-            **get_upstream_request_kwargs(),
+            **self.settings.open_api.get_upstream_request_kwargs(),
             json={
                 "model": self.settings.rerank.model_name,
                 "encoding_format": "float",
@@ -52,7 +59,7 @@ class QDrantService:
         query: str,
         points: list[object],
     ) -> list[object]:
-        rerank_candidates = points
+        rerank_candidates = points[:self.settings.reranker.limit]
         rerank_targets = [point.payload.get("page_content") for point in rerank_candidates]
         scores = await get_rerank_scores(client, query, rerank_targets)
 
@@ -65,14 +72,12 @@ class QDrantService:
             )
         ]
 
-        return reranked_candidates[:10]
+        return reranked_candidates
 
 
     async def search(self, query: str) -> list[object]:
-        dense_vector, sparce_vector = await asyncio.gather(
-                                                self.dense_embedding(self.http, query),
-                                                self.sparce_embedding(query),
-                                            )
+        dense_vector = await self.dense_embedding(query)
+        sparse_vector = self.sparse_embedding(query)
         best_points = await self.__qdrant_search(dense_vector, sparse_vector)
 
         return best_points
@@ -84,24 +89,24 @@ class QDrantService:
         sparse_vector: SparseVector,
         ) -> object | None:
         response = await self.qdrant.query_points(
-            collection_name=self.qdrant_settings.collection_name,
+            collection_name=self.settings.qdrant.collection_name,
             prefetch=[
                 models.Prefetch(
                     query=dense_vector,
-                    using=self.qdrant_settings.dense_name,
-                    limit=self.search_settings.dense_prefetch,
+                    using=self.settings.qdrant.dense_name,
+                    limit=self.settings.search.dense_prefetch,
                 ),
                 models.Prefetch(
                     query=models.SparseVector(
                         indices=sparse_vector.indices,
                         values=sparse_vector.values,
                     ),
-                    using=self.qdrant_settings.sparce_name,
-                    limit=self.search_settings.sparce_prefetch,
+                    using=self.settings.qdrant.sparce_name,
+                    limit=self.settings.search.sparce_prefetch,
                 ),
             ],
             query=models.FusionQuery(fusion=models.Fusion.RRF),
-            limit=self.search_settings.retrive,
+            limit=self.settings.search.retrive,
             with_payload=True,
         )
 

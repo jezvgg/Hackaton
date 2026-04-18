@@ -15,7 +15,7 @@ class QwenEmbedding(AbstractEmbedding):
                 dense_settings: DenseModelSettings, 
                 openapi_settings: OpenAPISettings,
                 client: httpx.AsyncClient):
-        self.settings = settings
+        self.settings = dense_settings
         self.api_settings = openapi_settings
         self.client = client
 
@@ -37,7 +37,7 @@ class QwenEmbedding(AbstractEmbedding):
         return kwargs
 
         
-    async def __call__(self, sentence: str) :
+    async def __call__(self, text: str) :
         '''
         Здесь обязательно нужно реализовать все запросы асинхронно,
         при помощи библеотеки httpx,
@@ -46,7 +46,7 @@ class QwenEmbedding(AbstractEmbedding):
         '''
         response = await self.client.post(
             self.settings.url,
-            **get_upstream_request_kwargs(),
+            **self.api_settings.get_upstream_request_kwargs(),
             json={
                 "model": self.settings.model_name,
                 "input": [text],

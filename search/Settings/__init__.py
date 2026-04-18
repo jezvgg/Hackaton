@@ -7,6 +7,8 @@ from .serach_settings import SearchSettings
 
 from pydantic import BaseModel, Field, model_validator
 
+import os
+
 
 class Settings(BaseModel):
     dense_model: DenseModelSettings
@@ -15,6 +17,7 @@ class Settings(BaseModel):
     reranker: RerankerSettings
     web_server: WebServerSettings
     sparce_model_name: str
+    search: SearchSettings
 
     @staticmethod
     def from_env() -> "Settings":
@@ -25,7 +28,7 @@ class Settings(BaseModel):
             reranker = RerankerSettings.from_env(),
             web_server = WebServerSettings.from_env(),
             sparce_model_name = os.getenv('SPARSE_MODEL_NAME', "Qdrant/bm25"),
-            serach_settings = SearchSettings.from_env()
+            search = SearchSettings.from_env()
         )
 
     @model_validator(mode='after')

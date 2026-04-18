@@ -11,7 +11,7 @@ class BM25Embedding(AbstractEmbedding):
         self.model = SparseTextEmbedding(model_name=sparce_model)
         
 
-    def __call__(self) -> SparseVector:
+    def __call__(self, text: str) -> SparseVector:
         vectors = list(self.model.embed([text]))
         if not vectors:
             raise ValueError("Sparse embedding response is empty")

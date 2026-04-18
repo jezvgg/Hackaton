@@ -1,0 +1,12 @@
+FROM ghcr.io/astral-sh/uv:python3.13-trixie-slim AS base
+
+COPY . ./app
+
+ENV UV_NO_DEV=0
+ENV UV_ENV_FILE=.env.deploy
+
+WORKDIR /app
+
+RUN uv sync --locked
+
+ENTRYPOINT ['uv', 'run', 'main.py']

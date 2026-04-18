@@ -1,4 +1,5 @@
 from pydantic import BaseModel, Field
+import os
 
 
 class SearchSettings(BaseModel):
