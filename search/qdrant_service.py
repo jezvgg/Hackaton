@@ -75,39 +75,45 @@ class QDrantService:
         return reranked_candidates
 
 
-    async def search(self, query: str) -> list[object]:
-        dense_vector = await self.dense_embedding(query)
-        sparse_vector = self.sparse_embedding(query)
-        best_points = await self.__qdrant_search(dense_vector, sparse_vector)
+    async def search(self, querys: list[str]) -> list[object]:
+        dense_vectors = [await self.dense_embedding(query) for query in querys]
+        sparce_vectors  = [self.__sparce_prefetch(self.sparse_embedding(query)) for query in querys]
+        dense_vectors = [self.__dense_prefetch(vec) for vec in dense_vectors]
+
+        best_points = await self.__qdrant_search(sparce_vectors + dense_vectors)
 
         return best_points
 
 
-    async def __qdrant_search(
-        self,
-        dense_vector: list[float],
-        sparse_vector: SparseVector,
-        ) -> object | None:
-        response = await self.qdrant.query_points(
-            collection_name=self.settings.qdrant.collection_name,
-            prefetch=[
-                models.Prefetch(
-                    query=dense_vector,
-                    using=self.settings.qdrant.dense_name,
-                    limit=self.settings.search.dense_prefetch,
-                ),
-                models.Prefetch(
+    async def __sparce_prefetch(self, sparce_vector: SparseVector):
+        return models.Prefetch(
                     query=models.SparseVector(
                         indices=sparse_vector.indices,
                         values=sparse_vector.values,
                     ),
                     using=self.settings.qdrant.sparce_name,
                     limit=self.settings.search.sparce_prefetch,
-                ),
-            ],
+                )
+
+    
+    async def __dense_prefetch(self, dense_vector: list[float]):
+        return models.Prefetch(
+                    query=dense_vector,
+                    using=self.settings.qdrant.dense_name,
+                    limit=self.settings.search.dense_prefetch,
+                )
+
+
+    async def __qdrant_search(
+        self, 
+        prefetches: list[models.Prefetch]
+    ) -> object | None:
+        response = await self.qdrant.query_points(
+            collection_name=self.settings.qdrant.collection_name,
+            prefetch=prefetches,
             query=models.FusionQuery(fusion=models.Fusion.RRF),
             limit=self.settings.search.retrive,
-            with_payload=True,
+            with_payload=True
         )
 
         if not response.points:

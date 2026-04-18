@@ -38,10 +38,11 @@ async def health() -> dict[str, str]:
 @app.post("/search", response_model=SearchAPIResponse)
 async def search(payload: SearchAPIRequest) -> SearchAPIResponse:
     query = payload.question.text.strip()
-    if not query:
-        raise HTTPException(status_code=400, detail="question.text is required")
+    variants = payload.question.variants
+    hydes = payload.question.hyde
+    querys = [query] + variants + hydes
 
-    best_points = await service.search(query)
+    best_points = await service.search(querys)
 
     if best_points is None: return SearchAPIResponse(results=[])
 
