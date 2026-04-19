@@ -207,31 +207,45 @@ async def embed_sparse(text: str) -> SparseVector:
     )
 
 
-async def qdrant_search(
-    client: AsyncQdrantClient,
-    dense_vector: list[float],
-    sparse_vector: SparseVector,
-) -> Any | None:
-    response = await client.query_points(
-        collection_name=QDRANT_COLLECTION_NAME,
-        prefetch=[
-            models.Prefetch(
-                query=dense_vector,
-                using=QDRANT_DENSE_VECTOR_NAME,
-                limit=DENSE_PREFETCH_K,
-            ),
-            models.Prefetch(
+async def search2(querys: list[str], client: AsyncQdrantClient) -> list[object]:
+    dense_vectors = [await embed_dense(query) for query in querys]
+    sparce_vectors  = [sparce_prefetch(embed_sparse(query)) for query in querys]
+    dense_vectors = [dense_prefetch(vec) for vec in dense_vectors]
+
+    best_points = await qdrant_search(client, sparce_vectors + dense_vectors)
+
+    return best_points
+
+
+async def sparce_prefetch(sparce_vector: SparseVector):
+    return models.Prefetch(
                 query=models.SparseVector(
                     indices=sparse_vector.indices,
                     values=sparse_vector.values,
                 ),
                 using=QDRANT_SPARSE_VECTOR_NAME,
                 limit=SPRASE_PREFETCH_K,
-            ),
-        ],
+            )
+
+
+async def dense_prefetch(dense_vector: list[float]):
+    return models.Prefetch(
+                query=dense_vector,
+                using=QDRANT_DENSE_VECTOR_NAME,
+                limit=DENSE_PREFETCH_K,
+            )
+
+
+async def qdrant_search(
+    client: AsyncQdrantClient,
+    prefetches: list[models.Prefetch]
+) -> object | None:
+    response = await client.query_points(
+        collection_name=QDRANT_COLLECTION_NAME,
+        prefetch=prefetches,
         query=models.FusionQuery(fusion=models.Fusion.RRF),
         limit=RETRIEVE_K,
-        with_payload=True,
+        with_payload=True
     )
 
     if not response.points:
@@ -280,7 +294,7 @@ async def rerank_points(
     query: str,
     points: list[Any],
 ) -> list[Any]:
-    rerank_candidates = points[:10]
+    rerank_candidates = points
     rerank_targets = [point.payload.get("page_content") for point in rerank_candidates]
     scores = await get_rerank_scores(client, query, rerank_targets)
 
@@ -293,7 +307,7 @@ async def rerank_points(
         )
     ]
 
-    return reranked_candidates
+    return reranked_candidates[:10]
 
 
 # Ваш сервис должен имплементировать оба этих метода
@@ -305,15 +319,16 @@ async def health() -> dict[str, str]:
 @app.post("/search", response_model=SearchAPIResponse)
 async def search(payload: SearchAPIRequest) -> SearchAPIResponse:
     query = payload.question.text.strip()
+    variants = payload.question.variants
+    hydes = payload.question.hyde
+    querys = [query] + variants + hydes
     if not query:
         raise HTTPException(status_code=400, detail="question.text is required")
 
     client: httpx.AsyncClient = app.state.http
     qdrant: AsyncQdrantClient = app.state.qdrant
 
-    dense_vector = await embed_dense(client, query)
-    sparse_vector = await embed_sparse(query)
-    best_points = await qdrant_search(qdrant, dense_vector, sparse_vector)
+    best_points = await search2(querys, qdrant)
 
     if best_points is None:
         return SearchAPIResponse(results=[])
